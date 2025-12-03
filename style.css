@@ -1,0 +1,17 @@
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;           /* Flexbox for centering */
+  justify-content: center; /* Horizontally center */
+  align-items: center;     /* Vertically center */
+  background: #000;        /* Optional: Add a background color */
+  overflow: hidden;        /* Prevents scrollbars */
+}
+
+canvas {
+  display: block;
+  max-width: 100%;   /* Ensure the canvas doesn't exceed the window size */
+  max-height: 100%;  /* Scale canvas proportionally */
+}
