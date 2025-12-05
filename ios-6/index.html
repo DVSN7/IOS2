@@ -1,0 +1,2103 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Shader Art</title>
+    <script src="https://ordinals.com/content/7e37766541506810ba6399c4b2735121f508bd9209df43dd200bf2316b014594i0"></script>
+    <meta charset="utf-8">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #000000;
+        }
+        canvas {
+            width: 100% !important;
+            height: 100% !important;
+            object-fit: contain !important;
+            max-width: 100vw;
+            max-height: 100vh;
+        }
+        main {
+            display: flex;
+            justify-content: center;
+            width: 100%;
+            align-items: center;
+            height: 100%;
+        }
+    </style>
+  </head>
+  <body>
+    <script id="vertex-shader" type="x-shader/x-vertex">
+        attribute vec3 aPosition;
+        attribute vec2 aTexCoord;
+        varying vec2 vTexCoord;
+
+        void main() {
+            vTexCoord = aTexCoord;
+            vec4 positionVec4 = vec4(aPosition, 1.0);
+            positionVec4.xy = positionVec4.xy * 2.0 - 1.0;
+            gl_Position = positionVec4;
+        }
+    </script>
+
+    <script id="fragment-shader" type="x-shader/x-fragment">
+        #ifdef GL_ES
+        precision mediump float;
+        precision lowp int;  
+        #endif
+
+        #define M_PI 3.14159265358979323846
+
+        varying vec2 vTexCoord;
+        uniform vec2 u_resolution;
+        uniform float u_time;
+        uniform float u_cellSize;
+        uniform float u_regionSize;  
+        uniform int u_regionAllocationMethod;  
+        uniform int u_gridRegionSize; 
+        uniform float u_baseCellSize;       
+        uniform float u_noiseScale;
+        uniform float u_maxDepth;
+        uniform float u_flowSpeed;
+        uniform float u_nS;
+        uniform float u_rSS;
+        uniform float u_roA;
+        uniform vec2 u_nOS;
+        uniform float u_amplitude;
+        uniform float u_scaleFactor;
+        uniform vec2 u_translation;
+        uniform float u_luminosity;
+        uniform float u_vibrancy;
+        uniform float u_initialFreq;
+        uniform float u_bS;
+        uniform float u_sortStrength;
+        uniform float u_sortFrequency;
+        uniform float u_sortAnimSpeed;
+        uniform int u_currentPattern;
+        uniform float u_baseModulation;
+        uniform vec4 u_baseColor;
+        uniform vec3 u_randomColor1;  
+        uniform vec3 u_randomColor2;
+        uniform vec3 u_randomColor3;
+        
+        
+        uniform bool u_enableGlyphNoiseDetail;
+        uniform bool u_isLightBackground;
+        uniform bool u_useMutedColors;
+        uniform float u_caScaleVariation;
+        uniform vec2 u_mouse;                   
+        uniform bool u_mouseActive;       
+        uniform float u_mouseInfluenceRadius; 
+        uniform vec2 u_persistentMousePos[30];  
+        uniform float u_persistentMouseFade[30]; 
+        uniform int u_persistentMouseCount;     
+
+        uniform vec2 u_trailPositions[20];   
+        uniform float u_trailTimes[20];      
+        uniform int u_trailCount;            
+
+        lowp float random(vec2 st, float seed) {
+            vec2 p = st + seed;
+            return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+        }
+
+        mediump float noise(vec2 st, float seed) {
+            vec2 i = floor(st);
+            vec2 f = fract(st);
+            
+            lowp vec2 u = f * f * (3.0 - 2.0 * f);
+            
+            lowp float a = random(i, seed);
+            lowp float b = random(i + vec2(1.0, 0.0), seed);
+            lowp float c = random(i + vec2(0.0, 1.0), seed);
+            lowp float d = random(i + vec2(1.0, 1.0), seed);
+            
+            return mix(
+                a + (b - a) * u.x,
+                c + (d - c) * u.x,
+                u.y);
+        }
+
+        lowp vec3 mod289(vec3 x) { 
+            return x - floor(x / 289.0) * 289.0; 
+        }
+
+        lowp vec2 mod289(vec2 x) { 
+            return x - floor(x / 289.0) * 289.0; 
+        }
+
+        lowp vec3 permute(vec3 x) { 
+            return mod289((x * 34.0 + 1.0) * x); 
+        }
+mediump float simplexNoise(mediump vec2 v, float time) {
+    const mediump vec4 C = vec4(0.211324865405187, 0.366025403784439, -0.577350269189626, 0.024390243902439);
+    
+    v += time * 0.03;
+    
+    lowp vec2 i = floor(v + dot(v, C.yy));
+    mediump vec2 x0 = v - i + dot(i, C.xx);
+    
+    lowp vec2 i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+    
+    mediump vec4 x12 = x0.xyxy + C.xxzz;
+    x12.xy -= i1;
+    
+    i = mod289(i);
+    lowp vec3 p = permute(permute(i.y + vec3(0.0, i1.y, 1.0)) + i.x + vec3(0.0, i1.x, 1.0));
+    
+    mediump vec3 dots = vec3(
+        dot(x0, x0),
+        dot(vec2(x12.x, x12.y), vec2(x12.x, x12.y)),
+        dot(vec2(x12.z, x12.w), vec2(x12.z, x12.w))
+    );
+    
+    lowp vec3 m = max(0.5 - dots, 0.0);
+    m = m * m;
+    m = m * m;
+    
+    lowp vec3 x = 2.0 * fract(p * C.www) - 1.0;
+    lowp vec3 h = abs(x) - 0.5;
+    lowp vec3 ox = floor(x + 0.5);
+    lowp vec3 a0 = x - ox;
+    
+    m *= 1.792842914 - 0.853734913 * (a0 * a0 + h * h);
+    
+    lowp vec3 g = vec3(
+        a0.x * x0.x + h.x * x0.y,
+        a0.y * x12.x + h.y * x12.y,
+        a0.z * x12.z + h.z * x12.w
+    );
+    
+    return 130.0 * dot(m, g);
+}
+
+
+        lowp float fastSin(float x) {
+            x = mod(x + M_PI, 2.0 * M_PI) - M_PI;
+            
+            float x2 = x * x;
+            return x * (1.0 - x2 / (3.0 * 2.0) + x2 * x2 / (5.0 * 4.0 * 3.0 * 2.0));
+        }
+
+        lowp float fastCos(float x) {
+            return fastSin(x + M_PI * 0.5);
+        }
+
+        lowp float fastTanh(float x) {
+            float absX = abs(x);
+            float signX = x < 0.0 ? -1.0 : 1.0;
+            return signX * absX / (1.0 + absX);
+        }
+
+
+
+        mediump float simplexNoise2(mediump vec2 v, float time) {
+           mediump vec2 p = v * 0.2;
+           float t = time * 0.015; 
+           
+           vec2 gridPos = floor(p * 2.0);
+           vec2 cellPos = fract(p * 2.0);
+           
+           float cellId = fract(sin(dot(gridPos, vec2(12.9898, 78.233))) * 43758.5453);
+           
+           const float PHI = 1.61803398874989484820459;
+           
+           float cellRotSpeed = 0.15 + cellId * 0.2;
+           float spiralFactor = t * cellRotSpeed;
+           float cellRotAngle = cellId * 6.28318 + spiralFactor * PHI;
+           
+           float smoothOffset = sin(t * 0.1) * 0.5 + sin(t * PHI * 0.05) * 0.3;
+           cellRotAngle += smoothOffset;
+           
+           float sinRot = fastSin(cellRotAngle);
+           float cosRot = fastCos(cellRotAngle);
+           mat2 rotation = mat2(cosRot, -sinRot, sinRot, cosRot);
+           
+           vec2 rotCellPos = rotation * (cellPos - 0.5) + 0.5;
+           
+           float blendTime = t * 0.01; 
+           float cellType = fract(cellId + sin(blendTime) * 0.5);
+           
+           vec2 subGrid = floor(rotCellPos * 2.0);
+           vec2 subCell = fract(rotCellPos * 2.0);
+           float spiralDist = length(rotCellPos - 0.5);
+           float subEdge = min(min(subCell.x, 1.0-subCell.x), min(subCell.y, 1.0-subCell.y));
+           float softGrid = smoothstep(0.0, 0.1 + spiralDist * 0.1, subEdge);
+           
+           float continuousT = t * 0.1;
+           float smoothT = (sin(continuousT) * 0.5 + 0.5);
+           float subCheckered = mix(
+               mod(subGrid.x + subGrid.y, 2.0),
+               mod(subGrid.x + subGrid.y + 1.0, 2.0),
+               smoothT
+           );
+           float pattern1 = mix(0.2, 1.0, subCheckered * softGrid);
+           
+           float dist = length(rotCellPos - 0.5);
+           float spiralPhase = atan(rotCellPos.y - 0.5, rotCellPos.x - 0.5) / 6.28318;
+           float continuousPhase = t * 0.05;
+           float smoothPhase = spiralPhase + sin(continuousPhase) * 0.1;
+           float circleWidth = 0.05 + 0.02 * sin(continuousPhase + dist * 2.0);
+           float circleRadius = 0.3 + 0.05 * sin(continuousPhase * 0.5 + dist * 3.0);
+           float pattern2 = smoothstep(circleRadius, circleRadius + circleWidth, dist + smoothPhase * 0.1);
+           
+           float continuousTime = t * 0.03;
+           float diag = abs(rotCellPos.x + rotCellPos.y - 1.0 + sin(continuousTime) * 0.1);
+           float lineWidth = 0.08 + 0.02 * cos(continuousTime + dist * 2.0);
+           float lineMid = 0.15 + 0.03 * sin(continuousTime * 0.5);
+           float pattern3 = 1.0 - smoothstep(lineMid - lineWidth, lineMid + lineWidth, diag);
+           
+           float slowTime = t * 0.02;
+           float horizontalMid = 0.5 + 0.03 * sin(slowTime + cellId);
+           float verticalMid = 0.5 + 0.03 * sin(slowTime * 0.7 + cellId);
+           float barWidth = 0.15 + 0.03 * sin(slowTime * 0.5);
+           
+           float horizontal = smoothstep(horizontalMid - barWidth, horizontalMid - barWidth + 0.05, rotCellPos.y) * 
+                            smoothstep(horizontalMid + barWidth, horizontalMid + barWidth - 0.05, rotCellPos.y);
+           float vertical = smoothstep(verticalMid - barWidth, verticalMid - barWidth + 0.05, rotCellPos.x) * 
+                          smoothstep(verticalMid + barWidth, verticalMid + barWidth - 0.05, rotCellPos.x);
+           float pattern4 = max(horizontal, vertical);
+
+           float blend1 = smoothstep(0.0, 0.3, cellType) * smoothstep(0.4, 0.1, cellType);
+           float blend2 = smoothstep(0.2, 0.5, cellType) * smoothstep(0.7, 0.4, cellType);
+           float blend3 = smoothstep(0.4, 0.7, cellType) * smoothstep(0.9, 0.6, cellType);
+           float blend4 = smoothstep(0.6, 0.9, cellType) * smoothstep(1.1, 0.8, cellType);
+           
+           float totalBlend = blend1 + blend2 + blend3 + blend4;
+           if (totalBlend > 0.0) {
+               float normalFactor = 1.0 / (totalBlend + 0.0001);
+               blend1 *= normalFactor;
+               blend2 *= normalFactor;
+               blend3 *= normalFactor;
+               blend4 *= normalFactor;
+           }
+           
+           float pattern = 
+               pattern1 * blend1 +
+               pattern2 * blend2 +
+               pattern3 * blend3 +
+               pattern4 * blend4;
+           
+           float gridLineWidth = 0.03 + 0.01 * sin(blendTime);
+           float gridLines = max(
+               smoothstep(gridLineWidth, 0.0, min(cellPos.x, 1.0 - cellPos.x)),
+               smoothstep(gridLineWidth, 0.0, min(cellPos.y, 1.0 - cellPos.y))
+           );
+           
+           float gridBlend = 0.3 + 0.1 * sin(blendTime);
+           pattern = mix(pattern, 1.0, gridLines * gridBlend);
+           
+           return pattern * 2.0 - 1.0;
+       }
+
+
+
+
+        
+
+        vec2 domainWarp(vec2 p, float time) {
+            float slowTime = time * 0.0001;
+            
+            float cellCountY = 5.0;  
+            float flow = simplexNoise2(p * 0.05 * cellCountY + slowTime, slowTime);
+            float detail = simplexNoise2(p * 0.1 * cellCountY + slowTime * 1.5, slowTime * 2.0) * 0.3;
+            
+            float angle = slowTime * 0.1;
+            float rotX = fastCos(angle) * flow;
+            float rotY = fastSin(angle) * flow;
+            
+            return p + vec2(
+                rotX * 1.5 + detail,
+                rotY * 1.5 + detail
+            );
+        }
+
+        float layeredNoise(vec2 p, float time) {
+            float mainLayer = simplexNoise2(p, time);
+            float detail = simplexNoise2(p * 2.0, time * 0.3) * 0.3;
+            return mainLayer * 0.7 + detail * 0.3;
+        }
+
+        float fbmSimplexNoise(vec2 v, int octaves) {
+            if (octaves <= 0) return 0.0;
+            
+            const float PERSISTENCE = 0.001;
+            const float LACUNARITY = 0.0009;
+            const int MAX_OCTAVES = 2;
+            
+            float total = 0.0;
+            float amplitude = u_amplitude;
+            float frequency = u_initialFreq;
+            
+            v += u_nOS + vec2(u_nS);
+            
+            vec2 warpedCoord = domainWarp(v, u_time * 0.1);
+            float basePattern = layeredNoise(warpedCoord, u_time);
+            total = amplitude * basePattern;
+            
+            float timeInfluence = simplexNoise(vec2(u_time * 0.05, 0.0), u_nS) * 0.5;
+            
+            float timeRotation = u_time * 0.05;
+            float sinRot = fastSin(timeRotation);
+            float cosRot = fastCos(timeRotation);
+            mat2 rot = mat2(cosRot, -sinRot, sinRot, cosRot);
+            
+            amplitude *= PERSISTENCE * 3.2;
+            frequency *= LACUNARITY * (1.0 + timeInfluence * 0.2);
+            total += amplitude * layeredNoise(rot * warpedCoord * frequency, u_time * 0.9);
+            
+            if (octaves > 1) {
+                amplitude *= PERSISTENCE * 2.0;
+                frequency *= LACUNARITY * (1.0 + timeInfluence * 0.2);
+                total += amplitude * layeredNoise(rot * warpedCoord * frequency, u_time * 0.9);
+            }
+            
+            return total * (timeInfluence * 0.9 + u_baseModulation);
+        }
+
+
+        lowp vec3 getColorFromPalette(float t) {
+            t = clamp(t, 0.0, 4.0) * 7.0;
+            int segment = int(t);
+            float frac = t - float(segment);
+            float phase = float(segment) / 7.0;
+            
+            vec3 color1, color2;
+            
+                    color1 = mix(
+                mix(u_randomColor1, u_randomColor2, sin(phase * 6.28318) * 0.5 + 0.5),
+                u_randomColor3,
+                        cos(phase * 9.42477) * 0.5 + 0.5
+                    );
+                    color2 = mix(
+                mix(u_randomColor2, u_randomColor3, cos(phase * 12.56636) * 0.5 + 0.5),
+                u_randomColor1,
+                        sin(phase * 15.70796) * 0.5 + 0.5
+                    );
+            
+            return mix(color1, color2, smoothstep(0.1, 0.9, frac));
+        }
+
+        lowp vec3 enhanceColor(vec3 color, float noiseValue) {
+            const vec3 LUM_WEIGHTS = vec3(0.333, 0.333, 0.334);
+            float luminance = dot(color, LUM_WEIGHTS);
+            
+            float maxDiff = max(max(abs(color.r - color.g), abs(color.g - color.b)), abs(color.b - color.r));
+            bool isMonochrome = maxDiff < 0.05;
+            
+            if (isMonochrome) {
+                float monoBoost = 1.0 + noiseValue * (u_isLightBackground ? 0.03 : 0.06);
+                vec3 boosted = color * monoBoost;
+                
+                float contrastPower = u_isLightBackground ? 0.92 : 0.88;
+                vec3 contrasted = pow(boosted, vec3(contrastPower));
+                
+                float variation = sin(luminance * 6.28318 + u_time * 0.1) * 0.02;
+                contrasted += vec3(variation);
+                
+                float finalLuminance = dot(contrasted, LUM_WEIGHTS);
+                return vec3(finalLuminance);
+            } else {
+                float noiseInfluence = 1.0 + noiseValue * (u_isLightBackground ? 0.02 : 0.04);
+                if (u_useMutedColors) {
+                    noiseInfluence *= 0.5; 
+                }
+                
+                vec3 boosted = color * (1.0 + (1.0 - luminance) * noiseInfluence);
+                
+                float saturationStrength;
+                if (u_useMutedColors) {
+                    saturationStrength = u_isLightBackground ? 0.85 : 0.9; 
+                } else {
+                    saturationStrength = u_isLightBackground ? 1.1 : 1.2; 
+                }
+                
+                vec3 saturated = mix(vec3(luminance), boosted, vec3(saturationStrength));
+                
+                float contrastPower;
+                if (u_useMutedColors) {
+                    contrastPower = u_isLightBackground ? 0.97 : 0.95; 
+                } else {
+                    contrastPower = u_isLightBackground ? 0.95 : 0.92; 
+                }
+                
+                vec3 contrasted = pow(saturated, vec3(contrastPower));
+                
+                float highlightThreshold;
+                if (u_useMutedColors) {
+                    highlightThreshold = u_isLightBackground ? 0.97 : 0.95; 
+                } else {
+                    highlightThreshold = u_isLightBackground ? 0.95 : 0.92; 
+                }
+                
+                vec3 highlights = smoothstep(highlightThreshold, 1.0, contrasted);
+                contrasted = mix(contrasted, highlights * 0.9, u_useMutedColors ? 0.4 : 0.6);
+                
+                float finalMultiplier = u_useMutedColors ? 
+                    (u_isLightBackground ? 0.9 : 0.95) : 
+                    (u_isLightBackground ? 0.95 : 1.05); 
+                    
+                return contrasted * finalMultiplier;
+            }
+        }
+
+        lowp vec3 blendColors(lowp vec3 a, lowp vec3 b, lowp float factor) {
+            lowp vec3 screen = 1.0 - (1.0 - a) * (1.0 - b * factor * 0.8);
+            
+            lowp vec3 add = a + b * factor * 0.3;
+            
+            lowp float rotationInfluence = (1.0 + sin(u_roA)) * 0.5;
+            
+            return mix(screen, add, 2.5 + rotationInfluence);
+        }
+
+        lowp vec2 getFlowDirection(mediump vec2 position, float time) {
+            const lowp float slowTime = 0.0;
+            
+            float cellSize = 200.0;
+            vec2 cellCoord = floor(position / cellSize);
+            
+            float cellState = fract(sin(dot(cellCoord, vec2(12.9898, 78.233))) * 43758.5453);
+            
+            float topState = fract(sin(dot(cellCoord + vec2(0.0, 1.0), vec2(12.9898, 78.233))) * 43758.5453);
+            float rightState = fract(sin(dot(cellCoord + vec2(1.0, 0.0), vec2(12.9898, 78.233))) * 43758.5453);
+            float bottomState = fract(sin(dot(cellCoord + vec2(0.0, -1.0), vec2(12.9898, 78.233))) * 43758.5453);
+            float leftState = fract(sin(dot(cellCoord + vec2(-1.0, 0.0), vec2(12.9898, 78.233))) * 43758.5453);
+            
+            float timeState = step(0.5, sin(cellState * 10.0));
+            
+            vec2 flow = vec2(
+                (rightState - leftState) * cos(cellState * 10.0),
+                (topState - bottomState) * sin(cellState * 10.0)
+            );
+            
+            vec2 localPos = fract(position / cellSize) - 0.5;
+            vec2 vortex = vec2(-localPos.y, localPos.x) * timeState;
+            
+            float totalMouseFactor = 0.0;
+            vec2 totalMouseDirection = vec2(0.0);
+            float mouseInfluenceRadius = u_mouseInfluenceRadius * u_cellSize;
+            
+            float mouseInfluenceRadiusSq = mouseInfluenceRadius * mouseInfluenceRadius;
+            for (int i = 0; i < 30; i++) {
+                if (i >= u_persistentMouseCount) break;
+                
+                vec2 persistentPos = u_persistentMousePos[i];
+                float persistentFade = u_persistentMouseFade[i];
+                
+                if (persistentFade <= 0.01) continue;
+                
+                vec2 diff = position - persistentPos;
+                float distSq = dot(diff, diff);
+                
+                if (distSq >= mouseInfluenceRadiusSq) continue;
+                
+                float persistentDistance = sqrt(distSq);
+                float normalizedDist = persistentDistance / mouseInfluenceRadius;
+                float persistentFactor = (1.0 - normalizedDist * normalizedDist * (3.0 - 2.0 * normalizedDist)) * persistentFade;
+                
+                if (persistentFactor > totalMouseFactor) {
+                    totalMouseFactor = persistentFactor;
+                    totalMouseDirection = normalize(diff);
+                }
+            }
+            
+            if (totalMouseFactor > 0.01) {
+                flow = mix(flow, totalMouseDirection * 1.2, totalMouseFactor * 1.2 * u_mouseInfluenceRadius / 10.0);
+                
+                vortex *= 1.0 + totalMouseFactor * 2.5 * u_mouseInfluenceRadius / 10.0;
+            }
+            
+            if (u_persistentMouseCount > 0) {
+                for (int i = 0; i < 20; i++) {
+                    if (i >= u_trailCount) break;
+                    
+                    vec2 trailPos = u_trailPositions[i];
+                    float trailAge = u_trailTimes[i];
+                    
+                    if (trailAge >= 3.0) continue;
+                    
+                    float trailRadius = mouseInfluenceRadius * 0.7 * (1.0 - trailAge / 3.0);
+                    float trailDistance = length(position - trailPos);
+                    
+                    if (trailDistance < trailRadius) {
+                        float normalizedDist = trailDistance / trailRadius;
+                        float trailFactor = (1.0 - trailAge / 3.0) * 
+                                           (1.0 - normalizedDist * normalizedDist * (3.0 - 2.0 * normalizedDist));
+                        
+                        trailFactor = trailFactor * trailFactor * 0.3 * u_mouseInfluenceRadius / 10.0;
+                        
+                        if (trailFactor > 0.01) {
+                            vec2 trailDirection = normalize(position - trailPos);
+                            
+                            flow = mix(flow, trailDirection, trailFactor);
+                        }
+                    }
+                }
+            }
+            
+            return normalize(flow + vortex);
+        }
+
+        lowp vec4 getCASettings(float seed, float iter) {
+            float patternSeed = fract(seed * 12345.6789 + iter * 789.123);
+            int patternType = int(mod(patternSeed * 4.0, 4.0));
+            
+            if (patternType == 0) {
+                return vec4(0.4, 1.3, 2.3, 0.35);
+            } else if (patternType == 1) {
+                return vec4(0.15, 1.6, 2.7, 0.5);
+            } else if (patternType == 2) {
+                return vec4(0.3, 1.7, 2.2, 0.45);
+            } else {
+                return vec4(0.25, 1.5, 2.5, 0.4);
+            }
+        }
+
+        lowp float getGlyphPattern(vec2 cell, float depth, float seed, vec2 normalizedPos) {
+            vec2 gridPos = floor(cell / 4.0) * 4.0;
+            float gridValue = max(abs(gridPos.x), abs(gridPos.y)) * 0.25;
+            float smoothGrid = smoothstep(0.0, 4.0, gridValue) * 0.5;
+            
+            float stabilityNoise = noise(floor(cell / 8.0) * 8.0, seed) * 0.3;
+            float scaleVariation = 1.0 + (smoothGrid * 0.4 + stabilityNoise) * u_caScaleVariation * 0.5;
+            
+            float glyphMouseFactor = 0.0;
+            vec2 approxWorldPos = cell * u_cellSize * 0.5;
+            float glyphMouseInfluenceRadius = u_mouseInfluenceRadius * 0.75 * u_cellSize;
+            
+            float glyphMouseInfluenceRadiusSq = glyphMouseInfluenceRadius * glyphMouseInfluenceRadius;
+            for (int i = 0; i < 30; i++) {
+                if (i >= u_persistentMouseCount) break;
+                
+                vec2 persistentPos = u_persistentMousePos[i];
+                float persistentFade = u_persistentMouseFade[i];
+                
+                if (persistentFade <= 0.01) continue;
+                
+                vec2 diff = approxWorldPos - persistentPos;
+                float distSq = dot(diff, diff);
+                
+                if (distSq >= glyphMouseInfluenceRadiusSq) continue;
+                
+                float persistentDistance = sqrt(distSq);
+                float normalizedDist = persistentDistance / glyphMouseInfluenceRadius;
+                float persistentFactor = (1.0 - normalizedDist * normalizedDist * (3.0 - 2.0 * normalizedDist)) * 0.5 * persistentFade;
+                glyphMouseFactor = max(glyphMouseFactor, persistentFactor);
+            }
+            
+            if (glyphMouseFactor > 0.01) {
+                scaleVariation += glyphMouseFactor * 0.4 * u_mouseInfluenceRadius / 10.0;
+            }
+            
+            vec2 scaledCell = floor(cell * scaleVariation * 2.0) * 0.5;
+            vec2 id = floor(scaledCell * 2.0);
+            
+            float basePattern = noise(floor(id * 0.5) * 2.0, seed + floor(depth));
+            float state = step(0.5, basePattern);
+            
+            float angle = atan(scaledCell.y, scaledCell.x);
+            float radius = length(scaledCell) * 2.0;
+            
+            vec4 caSettings = getCASettings(seed, floor(depth));
+            float dirBias = sin(angle * floor(depth + 1.0)) * caSettings.x;
+            
+            float neighbors = 0.0;
+            
+            vec2 neighbor;
+            float neighborState;
+            
+            neighbor = floor(id + vec2(1.0, 0.0));
+            neighborState = step(0.5, noise(neighbor * 0.5, seed));
+            neighbors += neighborState * (1.0 + dirBias * 0.2);
+            
+            neighbor = floor(id + vec2(-1.0, 0.0));
+            neighborState = step(0.5, noise(neighbor * 0.5, seed));
+            neighbors += neighborState * (1.0 + dirBias * 0.2);
+            
+            neighbor = floor(id + vec2(0.0, 1.0));
+            neighborState = step(0.5, noise(neighbor * 0.5, seed));
+            neighbors += neighborState * (1.0 + dirBias * 0.2);
+            
+            neighbor = floor(id + vec2(0.0, -1.0));
+            neighborState = step(0.5, noise(neighbor * 0.5, seed));
+            neighbors += neighborState * (1.0 + dirBias * 0.2);
+            
+            float depthRule = floor(mod(depth * 1.618 + seed * 3.14159, 2.0));
+            
+            if (depthRule < 1.0) {
+                float surviveThreshold = caSettings.y + sin(angle * 2.0) * 0.1;
+                state = step(surviveThreshold - 0.1, neighbors) * 
+                        step(neighbors, surviveThreshold + 1.1) * state + 
+                        step(caSettings.z - 0.1, neighbors) * 
+                        step(neighbors, caSettings.z + 0.1) * (1.0 - state);
+            } else {
+                float edgeThreshold = caSettings.w + cos(radius) * 0.1;
+                state = step(edgeThreshold, abs(neighbors - 2.0 - dirBias));
+            }
+            
+            float geoPattern = smoothstep(0.4, 0.6, 
+                sin(floor(radius * (2.0 + depth * 0.5)) + 
+                    floor(angle * (4.0 + depth * 0.3)) + 
+                    floor(depth) + seed) * 0.5 + 0.5
+            );
+            
+            float blendFactor = 0.5 + 0.1 * sin(floor(depth) * 1.5);
+            float finalPattern = mix(state, geoPattern, blendFactor);
+            
+            float detail = noise(floor(scaledCell * (depth + 1.0) * 2.0) * 0.5, seed + floor(depth));
+            return mix(finalPattern, detail, 0.1);
+        }
+
+
+        void main() {
+            const lowp int MAX_LOOP_DEPTH = 6;
+            
+            mediump vec2 coord = (vTexCoord * u_resolution - u_resolution * 0.25) * u_scaleFactor + u_translation;
+            coord = coord / u_bS;
+            
+            const float CELL_COUNT_Y_GLSL = 5.0;  
+            
+            const mediump float gridDistortTime = 0.0;
+            mediump vec2 gridDistortCoord = coord * u_sortFrequency;
+            
+            lowp float distortNoise1 = fbmSimplexNoise(gridDistortCoord + vec2(gridDistortTime * 0.1), 2);
+            lowp float distortNoise2 = fbmSimplexNoise(gridDistortCoord + vec2(gridDistortTime * -0.15), 2);
+            
+            lowp vec2 expPattern, stepPattern, circularPattern, squarePattern, flowPattern, smoothFlowPattern;
+            
+            expPattern = vec2(
+                exp(-abs(mod(distortNoise1 + gridDistortTime, 2.0) - 1.0)) - 0.5,
+                exp(-abs(mod(distortNoise2 + gridDistortTime, 2.0) - 1.0)) - 0.5
+            );
+            
+            stepPattern = vec2(
+                floor(distortNoise1 * 4.0) / 4.0,
+                floor(distortNoise2 * 4.0) / 4.0
+            );
+            
+            float angle = distortNoise1 * 6.28318;
+            circularPattern = vec2(
+                cos(angle) * distortNoise2,
+                sin(angle) * distortNoise2
+            );
+            
+            squarePattern = vec2(
+                sign(fract(distortNoise1 * 2.0) - 0.5) * abs(fract(distortNoise2 * 2.0) - 0.5),
+                sign(fract(distortNoise2 * 2.0) - 0.5) * abs(fract(distortNoise1 * 2.0) - 0.5)
+            );
+            
+            flowPattern = vec2(
+                distortNoise1 * cos(gridDistortTime * 0.2) - distortNoise2 * sin(gridDistortTime * 0.15),
+                distortNoise1 * sin(gridDistortTime * 0.2) + distortNoise2 * cos(gridDistortTime * 0.15)
+            );
+            
+            float vortexStrength = 0.3;
+            float vortexAngle = atan(coord.y, coord.x) + gridDistortTime * 0.1;
+            vec2 vortexOffset = vec2(
+                cos(vortexAngle) * length(flowPattern) * vortexStrength,
+                sin(vortexAngle) * length(flowPattern) * vortexStrength
+            );
+            
+            smoothFlowPattern = flowPattern + vortexOffset;
+            
+            
+            vec2 finalPattern;
+            if (u_currentPattern == 5) {
+                finalPattern = smoothFlowPattern;
+            } else if (u_currentPattern == 0) {
+                float patternMix = fract(gridDistortTime * 0.1);
+                finalPattern = mix(
+                    mix(expPattern, stepPattern, smoothstep(0.0, 0.33, patternMix)),
+                    mix(circularPattern, squarePattern, smoothstep(0.66, 1.0, patternMix)),
+                    smoothstep(0.33, 0.66, patternMix)
+                );
+            } else if (u_currentPattern == 1) {
+                finalPattern = expPattern;
+            } else if (u_currentPattern == 2) {
+                finalPattern = stepPattern;
+            } else if (u_currentPattern == 3) {
+                finalPattern = circularPattern;
+            } else {
+                finalPattern = squarePattern;
+            }
+            
+            mediump vec2 gridOffset = vec2(0.0);
+            
+            float distortionRandom = fract(sin(dot(coord + vec2(gridDistortTime), vec2(12.9898, 78.233))) * 43758.5453);
+            
+            if (distortionRandom < 0.3) {
+                float randomStrength = 0.5 + distortionRandom * 1.5; 
+                gridOffset = finalPattern * u_sortStrength * u_cellSize * randomStrength;
+                
+                float waveFreq = 0.5 + distortionRandom * 1.0; 
+                coord += gridOffset * (1.0 + sin(gridDistortTime * waveFreq) * 0.3);
+            }
+            
+            float gridRegionCellSize = u_baseCellSize * float(u_gridRegionSize);  
+            vec2 regionCoord = floor(coord / gridRegionCellSize);
+            
+            float regionCV;
+            
+            if (u_regionAllocationMethod == 0) {
+                float regionHash = fract(sin(dot(regionCoord, vec2(12.9898, 78.233))) * 43758.5453);
+                regionCV = 2.0 + floor(regionHash * 5.0);  
+                
+            } else if (u_regionAllocationMethod == 2) {
+                vec2 gridCenter = vec2(0.0, 0.0);  
+                float distToCenter = length(regionCoord - gridCenter);
+                float maxDist = length(vec2(10.0, 10.0));  
+                float normalizedDist = clamp(distToCenter / maxDist, 0.0, 1.0);
+                regionCV = 2.0 + floor(normalizedDist * 5.0);  
+                
+            } else if (u_regionAllocationMethod == 3) {
+                vec2 noiseCoord1 = regionCoord * 0.05;  
+                vec2 noiseCoord2 = regionCoord * 0.15;  
+                vec2 noiseCoord3 = regionCoord * 0.3;   
+                
+                float noise1 = fbmSimplexNoise(noiseCoord1, 4);  
+                float noise2 = fbmSimplexNoise(noiseCoord2, 3);  
+                float noise3 = fbmSimplexNoise(noiseCoord3, 2);  
+                
+                float combinedNoise = noise1 * 0.5 + noise2 * 0.3 + noise3 * 0.2;
+                
+                float regionHash = fract(sin(dot(regionCoord, vec2(12.9898, 78.233))) * 43758.5453);
+                float regionHash2 = fract(sin(dot(regionCoord, vec2(78.233, 12.9898))) * 43758.5453);
+                
+                float mixedValue = combinedNoise * 0.6 + (regionHash * 0.7 + regionHash2 * 0.3 - 0.5) * 0.4;
+                
+                float normalizedValue = (mixedValue + 1.0) * 0.5;
+                
+                float contrastValue = pow(normalizedValue, 0.35);  
+                
+                float quantized = floor(contrastValue * 5.0) / 4.0;
+                
+                regionCV = 2.0 + floor(quantized * 5.0);
+                
+                regionCV = clamp(regionCV, 2.0, 6.0);
+                
+            } else if (u_regionAllocationMethod == 4) {
+                float waveValue = sin(regionCoord.y * 0.3);
+                float normalizedWave = (waveValue + 1.0) * 0.5;
+                regionCV = 2.0 + floor(normalizedWave * 5.0);
+                
+            } else if (u_regionAllocationMethod == 7) {
+                float reverseDiagonal = regionCoord.x - regionCoord.y;
+                float waveValue = sin(reverseDiagonal * 0.2);
+                float normalizedWave = (waveValue + 1.0) * 0.5;
+                regionCV = 2.0 + floor(normalizedWave * 5.0);
+                
+            } else if (u_regionAllocationMethod == 8) {
+                vec2 center = vec2(0.0, 0.0);
+                vec2 offset = regionCoord - center;
+                float angle = atan(offset.y, offset.x);
+                float dist = length(offset);
+                float spiral = sin(angle * 3.0 + dist * 0.3);
+                float normalizedSpiral = (spiral + 1.0) * 0.5;
+                regionCV = 2.0 + floor(normalizedSpiral * 5.0);
+                
+            } else if (u_regionAllocationMethod == 9) {
+                float modX = mod(regionCoord.x, 3.0);
+                float modY = mod(regionCoord.y, 3.0);
+                float modSum = mod(modX + modY * 2.0, 5.0);
+                regionCV = 2.0 + modSum;
+                
+            } else if (u_regionAllocationMethod == 10) {
+                vec2 coarseGrid = floor(regionCoord * 0.5);
+                vec2 fineGrid = regionCoord;
+                float hash1 = fract(sin(dot(coarseGrid, vec2(12.9898, 78.233))) * 43758.5453);
+                float hash2 = fract(sin(dot(fineGrid, vec2(78.233, 12.9898))) * 43758.5453);
+                float combined = hash1 * 0.6 + hash2 * 0.4;
+                regionCV = 2.0 + floor(combined * 5.0);
+                
+            } else if (u_regionAllocationMethod == 11) {
+                float wave1 = sin(regionCoord.x * 0.3);
+                float wave2 = sin(regionCoord.y * 0.3);
+                float wave3 = sin((regionCoord.x + regionCoord.y) * 0.2);
+                float combined = (wave1 + wave2 + wave3) / 3.0;
+                float normalizedWave = (combined + 1.0) * 0.5;
+                regionCV = 2.0 + floor(normalizedWave * 5.0);
+                
+            } else if (u_regionAllocationMethod == 12) {
+                vec2 center = vec2(0.0, 0.0);
+                float dist = length(regionCoord - center);
+                float waveValue = sin(dist * 0.3);
+                float normalizedWave = (waveValue + 1.0) * 0.5;
+                regionCV = 2.0 + floor(normalizedWave * 5.0);
+                
+            } else {
+                float regionHash = fract(sin(dot(regionCoord, vec2(12.9898, 78.233))) * 43758.5453);
+                regionCV = 2.0 + floor(regionHash * 5.0);
+            }
+            
+            regionCV = clamp(regionCV, 2.0, 6.0);
+            
+            float regionCellSize = (u_resolution.y / regionCV) * u_bS;
+            
+            bool useDiscreteGrid = true;
+            
+            float gridCellSize = regionCellSize;
+            float visualCellSize = regionCellSize;
+            
+            if (useDiscreteGrid) {
+                visualCellSize = regionCellSize;
+                gridCellSize = regionCellSize;
+            } else if (u_regionAllocationMethod == 11) {
+                gridCellSize = (u_resolution.y / 4.0) * u_bS;
+                
+                float waveFreq = 0.0002;
+                float waveValue = sin(coord.y * waveFreq);
+                float normalizedWave = (waveValue + 1.0) * 0.5;
+                
+                float waveCV = 6.0 - normalizedWave * 4.0;  
+                waveCV = clamp(waveCV, 2.0, 6.0);
+                
+                visualCellSize = (u_resolution.y / waveCV) * u_bS;
+                
+                regionCellSize = visualCellSize;
+            }
+            
+            float cellSizeForCenter = (u_regionAllocationMethod == 11) ? visualCellSize : gridCellSize;
+            
+            vec2 gridCoord;
+            vec2 cellCenter;
+            
+            if (useDiscreteGrid) {
+                vec2 regionOrigin = regionCoord * gridRegionCellSize;  
+                vec2 localCoord = coord - regionOrigin;  
+                
+                gridCoord = floor(localCoord / regionCellSize);
+                cellCenter = regionOrigin + (gridCoord + 0.5) * regionCellSize;
+                
+                vec2 regionMin = regionOrigin;
+                vec2 regionMax = regionOrigin + vec2(gridRegionCellSize);
+                cellCenter = clamp(cellCenter, regionMin + regionCellSize * 0.5, regionMax - regionCellSize * 0.5);
+                
+                if (any(lessThan(coord, regionMin)) || any(greaterThanEqual(coord, regionMax))) {
+                    discard;  
+                }
+            } else {
+                gridCoord = floor(coord / cellSizeForCenter);
+                cellCenter = (gridCoord + 0.5) * cellSizeForCenter;
+            }
+            
+            vec2 localPos = coord - cellCenter;
+
+            float cellSizeForBoundary = useDiscreteGrid ? regionCellSize : visualCellSize;
+            lowp float cellBoundary = cellSizeForBoundary * 0.485;
+            lowp float edgeFade = 0.005;
+            
+            vec2 flowDir = getFlowDirection(cellCenter, u_time);
+            float flowAngle = atan(flowDir.y, flowDir.x);
+            
+            bool isWithinCell = all(lessThanEqual(abs(localPos), vec2(cellBoundary)));
+            
+            if (!isWithinCell) {
+                vec2 edgeDistance = abs(localPos) - vec2(cellBoundary);
+                float fadeAlpha = 1.0 - smoothstep(0.0, edgeFade, max(edgeDistance.x, edgeDistance.y));
+                if (fadeAlpha <= 0.0) discard;
+            }
+
+            const float FIXED_REF_HEIGHT = 1000.0;  
+            const float FIXED_CELL_SIZE = FIXED_REF_HEIGHT / CELL_COUNT_Y_GLSL;  
+            vec2 fixedGridCoord = coord / FIXED_CELL_SIZE;  
+
+            float distToCenter = length(coord - cellCenter);
+            float timeScale = u_time * 0.1;
+            vec2 baseNoiseCoord = fixedGridCoord * 0.1;
+            vec2 timeOffset = vec2(timeScale, timeScale + 100.0);
+            
+            float distortionCellSize = (u_regionAllocationMethod == 11) ? visualCellSize : regionCellSize;
+            float distortionInfluence = length(gridOffset) / (distortionCellSize * 2.0);
+            float noiseScale = 0.05 / CELL_COUNT_Y_GLSL;  
+            float baseNoiseFBM = fbmSimplexNoise(fixedGridCoord * noiseScale, 4) + distortionInfluence * 0.2;
+            
+            vec2 noiseOffset = vec2(
+                noise(baseNoiseCoord + timeOffset.xx, u_nS),
+                noise(baseNoiseCoord + timeOffset.yy, u_nS)
+            );
+            
+            float loopCellSize = (u_regionAllocationMethod == 11) ? gridCellSize : regionCellSize;
+            float gridSize = loopCellSize * mix(0.3, 2.5, baseNoiseFBM + distortionInfluence * 0.2);
+            vec2 localCoord = mod(coord + noiseOffset, gridSize);
+            
+            float randomAngle = floor(noise(fixedGridCoord + noiseOffset, u_nS) * 4.0) * (M_PI * 0.5);
+            float sinA = fastSin(randomAngle);
+            float cosA = fastCos(randomAngle);
+            vec2 rotatedCoord = vec2(
+                localCoord.x * cosA - localCoord.y * sinA,
+                localCoord.x * sinA + localCoord.y * cosA
+            );
+            
+            const float smoothedTime = 0.0;
+            
+            float fixedNoiseScale = 1.0 / CELL_COUNT_Y_GLSL;  
+            vec2 noiseInput1 = rotatedCoord * fixedNoiseScale + smoothedTime;
+            vec2 noiseInput2 = (rotatedCoord + fixedGridCoord * gridSize) * fixedNoiseScale * u_noiseScale;
+            
+            float flowNoise = fbmSimplexNoise(noiseInput1, 6);
+            vec2 animatedCoord = noiseInput2 + vec2(
+                simplexNoise(vec2(flowNoise, 0.0), u_nS),
+                simplexNoise(vec2(flowNoise, 100.0), u_nS)
+            ) * u_flowSpeed * 0.005;
+            
+            float curlNoise = fbmSimplexNoise(animatedCoord * (20.0 / CELL_COUNT_Y_GLSL) + vec2(u_nS), 8);
+            animatedCoord += 4.0 * vec2(
+                cos(curlNoise * 6.28318),
+                sin(curlNoise * 6.28318)
+            );
+            
+            lowp vec4 color = vec4(0.0);
+            
+            mediump float depthNoiseValue, depthFactor, colorT;
+            lowp vec3 color1, color2, enhancedColor1, enhancedColor2, blendedColor;
+            
+            float baseNoise = fbmSimplexNoise(animatedCoord * (0.15 / CELL_COUNT_Y_GLSL) + noiseOffset, 5);
+            float combinedNoise = (baseNoise * 0.3 + baseNoiseFBM * 0.7 + 3.0) * 0.3;
+            
+            float clampedNoise = clamp(combinedNoise, 0.0, 1.0);
+            int dynamicDepth = int(clamp(
+                clampedNoise * float(u_maxDepth),
+                1.0,
+                min(float(u_maxDepth), float(MAX_LOOP_DEPTH))
+            ));
+            
+            float threshold = 0.55 - (0.15 * pow(1.0 - u_bS, 2.0));
+            
+            const float t = 0.5; 
+            const float angleInfluence = 0.5; 
+            float blendFactor = t * t * (3.0 - 2.0 * t) * (1.0 + combinedNoise * 0.8 + angleInfluence * 1.2);
+            
+            const float edge0 = 0.2;
+            const float edge1 = 1.3; 
+            
+            for (int depth = 0; depth < MAX_LOOP_DEPTH; depth++) {
+                if (depth >= dynamicDepth) break;
+                
+                depthNoiseValue = noise(animatedCoord * float(depth + 1), u_nS);
+                depthFactor = float(depth) / float(MAX_LOOP_DEPTH);
+                
+                if (depthNoiseValue <= threshold) {
+                    continue;
+                }
+                
+                float glyphCellSize = (u_regionAllocationMethod == 11) ? gridCellSize : regionCellSize;
+                float currentSize = mix(0.3, 1.2, depthFactor) * glyphCellSize;
+                
+                vec2 rotatedP = vec2(
+                    localPos.x * fastCos(-flowAngle) - localPos.y * fastSin(-flowAngle),
+                    localPos.x * fastSin(-flowAngle) + localPos.y * fastCos(-flowAngle)
+                );
+                
+                float flowStrength = length(flowDir);  
+                float mappedOffset = mix(0.5, 1.2, flowStrength);  
+                vec2 glyphCell = floor(rotatedP / currentSize + mappedOffset);
+                vec2 localGlyphPos = rotatedP - glyphCell * currentSize;
+                
+                float glyphNoise = getGlyphPattern(glyphCell, float(depth), u_nS, vTexCoord);
+                
+                bool centerActive = abs(glyphCell.x) < 0.5 && abs(glyphCell.y) < 0.5;
+                bool noiseActive = length(glyphCell) < 1.5 && glyphNoise > 0.5;
+                bool lineActive = abs(localGlyphPos.x) < currentSize * 0.15 || abs(localGlyphPos.y) < currentSize * 0.15;
+                
+                bool insideGlyph = centerActive || noiseActive || lineActive;
+                
+                if (!insideGlyph) {
+                    continue;
+                }
+                
+                colorT = smoothstep(edge0, edge1, depthFactor + combinedNoise * 0.9);
+                
+                color1 = getColorFromPalette(colorT);
+                color2 = getColorFromPalette(1.0 - colorT);
+                
+                float depthBoost = 1.2 + (1.0 - depthFactor) * 0.8;
+                color1 *= depthBoost;
+                color2 *= depthBoost;
+                
+                enhancedColor1 = enhanceColor(color1, combinedNoise);
+                enhancedColor2 = enhanceColor(color2, combinedNoise);
+                
+                blendedColor = blendColors(enhancedColor1, enhancedColor2, blendFactor);
+                
+                color.rgb *= 1.0;
+                color += vec4(blendedColor, 1.0) * (1.0 - depthNoiseValue * 0.7);
+            }
+            
+            if (color.a == 0.0) {
+                color = u_baseColor;
+            }
+            
+            if (u_mouseActive) {
+                float mouseDistance = length(coord - u_mouse);
+                
+                float circleRadius = regionCellSize * 10.0; 
+                
+                
+                for (int i = 0; i < 20; i++) { 
+                    if (i >= u_trailCount) break; 
+                    
+                }
+            }
+            
+            for (int i = 0; i < 30; i++) {
+                if (i >= u_persistentMouseCount) break;
+                
+                vec2 persistentPos = u_persistentMousePos[i];
+                float persistentFade = u_persistentMouseFade[i];
+                
+                if (persistentFade > 0.01) {
+                    float distToMarker = length(coord - persistentPos);
+                    
+                    float markerRadius = 5.0;
+                    if (distToMarker < markerRadius) {
+                        float markerAlpha = 1.0 - (distToMarker / markerRadius);
+                        color = mix(color, vec4(1.0, 0.0, 0.0, 1.0), markerAlpha * 0.8);
+                    }
+                }
+            }
+            
+            gl_FragColor = color;
+        }
+    </script>
+
+    <script>
+        
+        let bS = 1.0;     
+        let cV = 4; 
+        let tS;
+        let dM = 0; 
+        let cS;
+        
+        const validRegionMethods = [0, 2, 3, 4, 7, 8, 9, 10, 11, 12];
+        
+        function selectWeightedMethod() {
+            const random = Math.random();
+            if (random < 0.40) {
+                return 0;
+            } else {
+                const otherMethods = validRegionMethods.filter(m => m !== 0);
+                const randomIndex = Math.floor(Math.random() * otherMethods.length);
+                return otherMethods[randomIndex];
+            }
+        }
+        
+        const gridRegionSizes = [2, 4, 8, 16]; 
+        const gridSizeWeights = [0.15, 0.40, 0.35, 0.10]; 
+        
+        function selectWeightedGridSize() {
+            const random = Math.random();
+            let cumulative = 0.0;
+            for (let i = 0; i < gridRegionSizes.length; i++) {
+                cumulative += gridSizeWeights[i];
+                if (random < cumulative) {
+                    return gridRegionSizes[i];
+                }
+            }
+            return gridRegionSizes[0];
+        }
+        
+        let regionAllocationMethod = selectWeightedMethod();
+        // console.log('Initialized with weighted random method:', regionAllocationMethod, getRegionMethodName(regionAllocationMethod));
+        
+        let gridRegionSize = selectWeightedGridSize();
+        // console.log('Initialized with weighted random grid size:', gridRegionSize + 'x' + gridRegionSize);
+        
+        const CELL_COUNT_Y = 2;  
+        
+        
+        const uniformCache = {
+            u_bS: null,
+            u_scaleFactor: null,
+            u_translation: null,
+            u_resolution: null,
+            u_time: null,
+            u_cellSize: null,
+            u_regionSize: null,
+            u_regionAllocationMethod: null,
+            u_gridRegionSize: null,
+            u_baseCellSize: null,
+            u_flowSpeed: null,
+            u_luminosity: null,
+            u_vibrancy: null,
+            u_sortStrength: null,
+            u_sortFrequency: null,
+            u_sortAnimSpeed: null,
+            u_currentPattern: null,
+            u_mouse: null,
+            u_mouseActive: null,
+            u_mouseInfluenceRadius: null,
+            u_persistentMousePos: null,
+            u_persistentMouseFade: null,
+            u_persistentMouseCount: null,
+            u_trailPositions: null,
+            u_trailTimes: null,
+            u_trailCount: null,
+            u_noiseScale: null,
+            u_caScaleVariation: null
+        };
+        
+        function getRegionMethodName(method) {
+            const names = {
+                0: 'Hash-based (Random-like)',
+                2: 'Distance-based (Radial)',
+                3: 'Noise-based (Organic)',
+                4: 'Horizontal Wave Bands',
+                7: 'Reverse Diagonal Pattern',
+                8: 'Spiral Pattern',
+                9: 'Modulo Pattern',
+                10: 'Multi-Scale Hash',
+                11: 'Wave Interference',
+                12: 'Concentric Rings'
+            };
+            return names[method] || 'Unknown';
+        }
+        
+        function setUniformCached(name, value) {
+            const cached = uniformCache[name];
+            if (Array.isArray(value) && Array.isArray(cached)) {
+                if (cached.length !== value.length) {
+                    uniformCache[name] = value;
+                    tS.setUniform(name, value);
+                    return;
+                }
+                for (let i = 0; i < value.length; i++) {
+                    if (cached[i] !== value[i]) {
+                        uniformCache[name] = value;
+                        tS.setUniform(name, value);
+                        return;
+                    }
+                }
+            } else if (cached !== value) {
+                uniformCache[name] = value;
+                tS.setUniform(name, value);
+            }
+        }      
+        let bN = 0.002;  
+        let nS;
+        let fS = 0.005;
+        let rSS;
+        let roA;
+        let nOX, nOY;
+        let scF = 50;
+        let tX = 0, tY = 0;
+        let iTX = 0, iTY = 0;
+        let pMX, pMY;
+        let amV = [0.1, 0.075, 0.05]; 
+        let lum = 1.5;
+        let vib = 2.5;
+        let soS = 0.1;     
+        let soF = 0.1;   
+        let soA = 0.15;     
+        let cuP;                  
+        
+        let mouseX = 0, mouseY = 0;
+        let panMouseX = 0, panMouseY = 0; 
+        let isMouseOnCanvas = false;
+        let mouseInfluenceFactor = 0.0; 
+        const MOUSE_INFLUENCE_FADE_SPEED = 0.15; 
+        
+        const MAX_PERSISTENT_POINTS = 30; 
+        const PERSISTENT_MIN_DISTANCE = 10; 
+        const FADE_BACK_DURATION = 2000; 
+        const MOUSE_FADE_BACK_RADIUS = 25.0; 
+        let persistentMousePoints = []; 
+        
+        let lastRedrawTime = 0;
+        const REDRAW_THROTTLE_MS = 16; 
+        
+        const persistentPositionsArray = new Array(MAX_PERSISTENT_POINTS * 2).fill(0);
+        const persistentFadeArray = new Array(MAX_PERSISTENT_POINTS).fill(0);
+
+        const MAX_TRAIL_POINTS = 20; 
+        const MIN_DISTANCE = 5; 
+        const TRAIL_LIFETIME = 5000; 
+        let trailPoints = []; 
+        
+        const trailPositionsArray = new Array(MAX_TRAIL_POINTS * 2).fill(0);
+        const trailTimesArray = new Array(MAX_TRAIL_POINTS).fill(0);
+        const TRAIL_LIFETIME_SEC = TRAIL_LIFETIME / 1000.0; 
+        
+        let canvasElement;
+        
+        let tog = {
+        };
+
+        let inscription_id = window.location.pathname.split("/").pop();
+        
+            let chars = "0123456789abcdefghijklmnopqrstuvwsyz";
+            inscription_id = new URLSearchParams(window.location.search).get("seed") || Array(64).fill(0).map(_=>chars[(Math.random()*chars.length)|0]).join('');
+
+
+        class Rnd{
+            constructor(seed) {
+                const i=Math.imul,h=t=>{let e,l=0;for(e=1779033703^t.length;l<t.length;l++){let h=e^t.charCodeAt(l);e=i(h,3432918353),e=e<<13|e>>>19}return()=>(e=i(e^e>>>16,2246822507),e=i(e^e>>>13,3266489909),(e^=e>>>16)>>>0)},a=(e,r,t,a)=>()=>{let l=((e|=0)+(r|=0)|0)+(a|=0)|0;return a=a+1|0,e=r^r>>>9,r=(t|=0)+(t<<3)|0,t=(t=t<<21|t>>>11)+l|0,(l>>>0)/4294967296},X=h(seed);this.R=a(X(),X());
+            }
+            D=_=>this.R();                  
+            N=(r,t)=>r+(t-r)*this.D();     
+            I=(r,t)=>0|this.N(r,t+1);      
+            B=r=>this.D()<r               
+        };
+        let R = new Rnd(inscription_id)
+
+
+
+        function upTC() {
+            tX = -width/2;
+            tY = -height/2;
+            iTX = tX;
+            iTY = tY;
+        }
+
+        function preload() {
+            let vertexShader = document.getElementById('vertex-shader').textContent;
+            let fragmentShader = document.getElementById('fragment-shader').textContent;
+            tS = createShader(vertexShader, fragmentShader);
+        }
+
+        function suEH() {
+           
+            const canvas = document.querySelector('canvas');
+            
+            
+            const keyState = new Set();
+            
+            document.addEventListener('keydown', (e) => {
+                
+                if (keyState.has(e.key)) return;
+                keyState.add(e.key);
+                
+                switch(e.key.toLowerCase()) {
+                    case 'a':
+                        dM = dM === 0 ? 3 : 0;
+                        requestAnimationFrame(upCS);
+                        break;
+                    
+                    case 'c':
+                        const cVValues = [2, 3, 4, 5, 6];
+                        const currentIndex = cVValues.indexOf(cV);
+                        const nextIndex = (currentIndex + 1) % cVValues.length;
+                        cV = cVValues[nextIndex];
+                        requestAnimationFrame(draw);
+                        break;
+                    
+                    case 'v':
+                        let currentMethodIndex = validRegionMethods.indexOf(regionAllocationMethod);
+                        if (currentMethodIndex === -1) {
+                            currentMethodIndex = 0;
+                            regionAllocationMethod = validRegionMethods[0];
+                        } else {
+                            currentMethodIndex = (currentMethodIndex + 1) % validRegionMethods.length;
+                            regionAllocationMethod = validRegionMethods[currentMethodIndex];
+                        }
+                        // console.log('Region allocation method:', regionAllocationMethod, getRegionMethodName(regionAllocationMethod), '- Grid size:', gridRegionSize + 'x' + gridRegionSize);
+                        requestAnimationFrame(draw);
+                        break;
+                        
+                    case '1':
+                        {  
+                            const cuD = pixelDensity();
+                            const nwD = 4;
+                            
+                            
+                            pixelDensity(nwD);
+                            draw();
+                            
+                           
+                            const tiS = geT();
+                            const prefix = 'IOS01_';
+                            saveCanvas(prefix + tiS, 'png');
+                            
+                           
+                            pixelDensity(cuD);
+                            draw();
+                            break;  
+                        }
+                        
+                }
+            });
+            
+            document.addEventListener('keyup', (e) => {
+                keyState.delete(e.key);
+            });
+        }
+
+        
+        function geT() {
+            const d = new Date();
+            const pad = n => n.toString().padStart(2, '0');
+            return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+        }
+
+        function setup() {
+            
+            let canvas = createCanvas(windowWidth, windowHeight, WEBGL);
+            canvasElement = document.querySelector('canvas');
+            
+            let gl = canvas.GL;
+            gl.disable(gl.DEPTH_TEST);  
+            gl.disable(gl.CULL_FACE);   
+            gl.disable(gl.DITHER);      
+            gl.disable(gl.STENCIL_TEST);
+            
+            
+            pixelDensity(2);
+            
+            
+            noStroke();
+            shader(tS);
+            
+            
+            
+            if (!inscription_id) {
+                return;
+            }
+            
+            
+            cuP = R.I(0, 5);
+            
+            
+            tS = createShader(
+                document.getElementById('vertex-shader').textContent,
+                document.getElementById('fragment-shader').textContent
+            );
+            shader(tS);
+            tS.setUniform('u_currentPattern', cuP);
+            
+            upCS();
+            
+            nOX = R.I(0,2000)
+            nOY = R.I(0,2000)
+
+            let shiftX = -width/2;
+            let shiftY = -height/2;
+            iTX = shiftX;
+            iTY = shiftY;
+            tX = shiftX;
+            tY = shiftY;
+
+            nS = R.I(0,1000)
+
+            rSS = R.I(0,1000)
+
+            roA = R.I(0, 360)
+            
+            let teR = R.I(0, amV.length - 1);
+            let raA = amV[teR];
+
+            
+            let seF = R.N(10.0, 0.000001);  
+            
+            
+            cS = windowHeight / cV;
+
+            
+            bN = R.N(0.002, 0.005);  
+
+            let baM = R.N(0.5, 2.0);  
+
+            
+            function caCD(color1, color2) {
+                
+                const dr = color1[0] - color2[0];
+                const dg = color1[1] - color2[1];
+                const db = color1[2] - color2[2];
+                return Math.sqrt(dr * dr + dg * dg + db * db);
+            }
+
+            const MONO_PALETTES = {
+HIGH_CONTRAST: {
+dark: [0.02, 0.02, 0.02],
+mid: [0.35, 0.35, 0.35],
+light: [0.85, 0.85, 0.85]
+},
+LOW_CONTRAST: {
+dark: [0.15, 0.15, 0.15],
+mid: [0.35, 0.35, 0.35],
+light: [0.55, 0.55, 0.55]
+},
+INFRARED: {
+dark: [0.05, 0.05, 0.05],
+mid: [0.3, 0.3, 0.3],
+light: [0.8, 0.8, 0.8]
+},
+SEPIA: {
+dark: [0.1, 0.08, 0.06],
+mid: [0.35, 0.3, 0.25],
+light: [0.7, 0.65, 0.6]
+},
+SPLIT_TONE: {
+dark: [0.1, 0.1, 0.15],
+mid: [0.3, 0.3, 0.35],
+light: [0.6, 0.55, 0.5]
+},
+            };
+
+            let isMonochrome = false;
+            let currentMonoPalette = null;
+            let useMutedColors = R.D() < 0.5; 
+
+            function geRC(brightnessType = 'light', baseHue = null, existingColors = []) {
+                if (!isMonochrome && R.D() < 0.05) {
+                    isMonochrome = true;
+                    const paletteKeys = Object.keys(MONO_PALETTES);
+                    currentMonoPalette = MONO_PALETTES[paletteKeys[Math.floor(R.D() * paletteKeys.length)]];
+                }
+
+                if (isMonochrome) {
+                    return {
+                        color: currentMonoPalette[brightnessType.toLowerCase()],
+                        hue: 0 
+                    };
+                }
+
+                const miCD = 0.3;
+                let at = 0;
+                const maA = 10;
+
+                while (at < maA) {
+                    let h;
+                    if (brightnessType === 'mid' && baseHue !== null) {
+                        h = (baseHue + 0.5) % 1.0;
+                    } else {
+                        h = R.D();  
+                    }
+
+                    let s;
+                    if (useMutedColors) {
+                        s = R.N(0.3, 0.5);
+                    } else {
+                        s = R.N(0.7, 0.75);
+                    }
+
+                    let v;
+                    if (useMutedColors) {
+                        switch(brightnessType) {
+                            case 'dark':
+                                v = R.N(0.2, 0.35);     
+                                break;
+                            case 'mid':
+                                v = R.N(0.45, 0.6);  
+                                break;
+                            case 'light':
+                                v = R.N(0.7, 0.85);  
+                                break;
+                        }
+                    } else {
+                        switch(brightnessType) {
+                            case 'dark':
+                                v = R.N(0.15, 0.3);  
+                                break;
+                            case 'mid':
+                                v = R.N(0.5, 0.65);  
+                                break;
+                            case 'light':
+                                v = R.N(0.85, 1.0);  
+                                break;
+                        }
+                    }
+
+                    let i = Math.floor(h * 6);
+                    let f = h * 6 - i;
+                    let p = v * (1 - s);
+                    let q = v * (1 - f * s);
+                    let t = v * (1 - (1 - f) * s);
+
+                    let r, g, b;
+                    switch (i % 6) {
+                        case 0: r = v, g = t, b = p; break;
+                        case 1: r = q, g = v, b = p; break;
+                        case 2: r = p, g = v, b = t; break;
+                        case 3: r = p, g = q, b = v; break;
+                        case 4: r = t, g = p, b = v; break;
+                        case 5: r = v, g = p, b = q; break;
+                    }
+
+                    const newColor = [r, g, b];
+
+                    let diC = true;
+                    for (const existingColor of existingColors) {
+                        if (caCD(newColor, existingColor) < miCD) {
+                            diC = false;
+                            break;
+                        }
+                    }
+
+                    if (diC || at === maA - 1) {
+                        return { color: newColor, hue: h };
+                    }
+
+                    at++;
+                }
+            }
+
+            
+            let liR = geRC('light', null, []);
+            let rC1 = liR.color;  
+            
+            let miR = geRC('mid', liR.hue, [rC1]);
+            let rC2 = miR.color;  
+            
+            let rC3 = geRC('dark', null, [rC1, rC2]).color;  
+
+            
+            let baC = [
+                [0.05, 0.05, 0.05, 1.0],  
+                [0.90, 0.87, 0.82, 1.0]    
+            ];
+
+            
+            let sBaC = baC[R.D() < 0.6 ? 0 : 1];
+            let liBc = sBaC[0] > 0.5;
+
+            tS.setUniform('u_nS', nS);
+            tS.setUniform('u_rSS', rSS);
+            tS.setUniform('u_roA', radians(roA));
+            tS.setUniform('u_nOS', [nOX, nOY]);
+            tS.setUniform('u_amplitude', raA);
+            tS.setUniform('u_maxDepth', 6);
+            tS.setUniform('u_luminosity', lum);
+            tS.setUniform('u_vibrancy', vib);
+            tS.setUniform('u_initialFreq', seF);
+            tS.setUniform('u_sortStrength', soS);
+            tS.setUniform('u_sortFrequency', soF);
+            tS.setUniform('u_sortAnimSpeed', soA);
+            tS.setUniform('u_baseModulation', baM);
+            tS.setUniform('u_baseColor', sBaC);
+            tS.setUniform('u_isLightBackground', liBc);
+            tS.setUniform('u_useMutedColors', useMutedColors);
+            tS.setUniform('u_randomColor1', rC1);
+            tS.setUniform('u_randomColor2', rC2);
+            tS.setUniform('u_randomColor3', rC3);
+            
+            
+            
+            tS.setUniform('u_mouse', [0.0, 0.0]);
+            tS.setUniform('u_mouseActive', false);
+            tS.setUniform('u_mouseInfluenceRadius', 20.0); 
+            tS.setUniform('u_persistentMousePos', persistentPositionsArray);
+            tS.setUniform('u_persistentMouseFade', persistentFadeArray);
+            tS.setUniform('u_persistentMouseCount', 0);
+
+            scF = 50;
+            upTC();
+
+            suEH();
+            
+            noLoop();
+            
+            setInterval(() => {
+                if (persistentMousePoints.length > 0) {
+                    const currentTime = Date.now();
+                    let needsUpdate = false;
+                    for (let i = 0; i < persistentMousePoints.length; i++) {
+                        const point = persistentMousePoints[i];
+                        if (point.fadeBackStartTime !== null) {
+                            const fadeBackAge = currentTime - point.fadeBackStartTime;
+                            if (fadeBackAge < FADE_BACK_DURATION) {
+                                needsUpdate = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (needsUpdate) {
+                        redraw();
+                    }
+                }
+            }, 100); 
+            
+            redraw();
+
+            
+            let cASV = R.N(1.5, 3.0);  
+            tS.setUniform('u_caScaleVariation', cASV);
+            
+            canvasElement.addEventListener('mousemove', updateMousePosition);
+            canvasElement.addEventListener('mouseenter', (e) => { 
+                updateMousePosition(e);
+                isMouseOnCanvas = true;
+                redraw();
+            });
+            canvasElement.addEventListener('mouseleave', () => { 
+                isMouseOnCanvas = false;
+                trailPoints = [];
+                redraw();
+            });
+        }
+        
+        function updateMousePosition(e) {
+            const currentTime = Date.now(); 
+            const rect = canvasElement.getBoundingClientRect();
+            
+            
+            
+            const mouseXCanvas = e.clientX - rect.left;
+            const mouseYCanvas = e.clientY - rect.top;
+            
+            const logicalMouseX = (mouseXCanvas / rect.width) * width;
+            const logicalMouseY = (mouseYCanvas / rect.height) * height;
+            const vTexCoordX = logicalMouseX / width;
+            const vTexCoordY = 1.0 - (logicalMouseY / height); 
+            
+            
+            let coordX, coordY;
+            
+            const canvasPixelWidth = canvasElement.width;
+            const canvasPixelHeight = canvasElement.height;
+            
+            const textureVTX = (vTexCoordX * width) / canvasPixelWidth;
+            const textureVTY = (vTexCoordY * height) / canvasPixelHeight;
+            
+            coordX = ((textureVTX * canvasPixelWidth - canvasPixelWidth * 0.25) * scF + tX) / bS;
+            coordY = ((textureVTY * canvasPixelHeight - canvasPixelHeight * 0.25) * scF + tY) / bS;
+            
+            const cellSize = (height / cV) * bS;
+            
+            const gridCoordX = Math.floor(coordX / cellSize);
+            const gridCoordY = Math.floor(coordY / cellSize);
+            const rawMouseX = (gridCoordX + 0.5) * cellSize;
+            const rawMouseY = (gridCoordY + 0.5) * cellSize;
+            
+            if (persistentMousePoints.length < 3) {
+                const logicalAspect = width / height;
+                const displayAspect = rect.width / rect.height;
+                const textureAspect = canvasElement.width / canvasElement.height;
+                
+            }
+            
+            mouseX = rawMouseX;
+            mouseY = rawMouseY;
+            
+            isMouseOnCanvas = true;
+            
+            
+            let shouldAddPersistent = true;
+            if (persistentMousePoints.length > 0) {
+                const lastPersistent = persistentMousePoints[persistentMousePoints.length - 1];
+                const dx = rawMouseX - lastPersistent.x;
+                const dy = rawMouseY - lastPersistent.y;
+                const distSq = dx * dx + dy * dy;
+                const minDistSq = PERSISTENT_MIN_DISTANCE * PERSISTENT_MIN_DISTANCE;
+                shouldAddPersistent = distSq > minDistSq;
+            }
+            
+            if (shouldAddPersistent) {
+                persistentMousePoints.push({
+                    x: rawMouseX,
+                    y: rawMouseY,
+                    fadeValue: 1.0,
+                    fadeBackStartTime: null
+                });
+            }
+            
+            if (shouldAddPersistent) {
+                persistentMousePoints.push({
+                    x: rawMouseX,
+                    y: rawMouseY,
+                    fadeValue: 1.0, 
+                    fadeBackStartTime: null
+                });
+                
+                while (persistentMousePoints.length > MAX_PERSISTENT_POINTS) {
+                    persistentMousePoints.shift();
+                }
+                
+                for (let i = 0; i < persistentMousePoints.length; i++) {
+                    const point = persistentMousePoints[i];
+                    const idx = i * 2;
+                    persistentPositionsArray[idx] = point.x;
+                    persistentPositionsArray[idx + 1] = point.y;
+                    persistentFadeArray[i] = point.fadeValue;
+                }
+                
+                for (let i = persistentMousePoints.length; i < MAX_PERSISTENT_POINTS; i++) {
+                    const idx = i * 2;
+                    persistentPositionsArray[idx] = 0;
+                    persistentPositionsArray[idx + 1] = 0;
+                    persistentFadeArray[i] = 0.0;
+                }
+                
+                const now = Date.now();
+                if (now - lastRedrawTime >= REDRAW_THROTTLE_MS) {
+                    redraw();
+                    lastRedrawTime = now;
+                }
+            }
+            
+            const mouseInfluenceRadius = 15.0 * (height / (dM === 4 ? CELL_COUNT_Y : cV)) * bS;
+            const mouseInfluenceRadiusSq = mouseInfluenceRadius * mouseInfluenceRadius;
+            for (let i = 0; i < persistentMousePoints.length; i++) {
+                const point = persistentMousePoints[i];
+                const dx = rawMouseX - point.x;
+                const dy = rawMouseY - point.y;
+                const distSq = dx * dx + dy * dy;
+                
+                if (distSq < mouseInfluenceRadiusSq) {
+                    if (point.fadeBackStartTime === null) {
+                        point.fadeBackStartTime = currentTime;
+                        const now = Date.now();
+                        if (now - lastRedrawTime >= REDRAW_THROTTLE_MS) {
+                            redraw();
+                            lastRedrawTime = now;
+                        }
+                    }
+                } else {
+                    if (point.fadeBackStartTime !== null) {
+                        point.fadeBackStartTime = null;
+                        point.fadeValue = 1.0;
+                    }
+                }
+            }
+            
+            {
+                let shouldAddPoint = true;
+                if (trailPoints.length > 0) {
+                    const lastPoint = trailPoints[trailPoints.length - 1];
+                    const dx = mouseX - lastPoint.x;
+                    const dy = mouseY - lastPoint.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    shouldAddPoint = distance > MIN_DISTANCE;
+                }
+                
+                if (shouldAddPoint) {
+                    trailPoints.push({
+                        x: mouseX,
+                        y: mouseY,
+                        time: currentTime
+                    });
+                    
+                    while (trailPoints.length > MAX_TRAIL_POINTS) {
+                        trailPoints.shift(); 
+                    }
+                    
+                    if (currentTime - trailPoints[0].time >= TRAIL_LIFETIME) {
+                        let cutoffIndex = 0;
+                        while (cutoffIndex < trailPoints.length && 
+                               currentTime - trailPoints[cutoffIndex].time >= TRAIL_LIFETIME) {
+                            cutoffIndex++;
+                        }
+                        
+                        if (cutoffIndex > 0) {
+                            trailPoints.splice(0, cutoffIndex);
+                        }
+                    }
+                }
+            }
+            
+            const now = Date.now();
+            if (now - lastRedrawTime >= REDRAW_THROTTLE_MS) {
+                redraw();
+                lastRedrawTime = now;
+            }
+            isMouseOnCanvas = true;
+        }
+
+        let prevMouseX = 0;
+        let prevMouseY = 0;
+        const MAX_MOUSE_DELTA = 50; 
+        const MOUSE_SMOOTHING_FACTOR = 0.98; 
+        
+        const smoothedMousePos = { x: 0, y: 0 };
+
+        function smoothMousePosition(currentX, currentY, prevX, prevY, out) {
+            const mouseDeltaX = currentX - prevX;
+            const mouseDeltaY = currentY - prevY;
+            const mouseDeltaSq = mouseDeltaX * mouseDeltaX + mouseDeltaY * mouseDeltaY;
+            const MAX_MOUSE_DELTA_SQ = MAX_MOUSE_DELTA * MAX_MOUSE_DELTA;
+            
+            let damping;
+            if (mouseDeltaSq > MAX_MOUSE_DELTA_SQ) {
+                const mouseDelta = Math.sqrt(mouseDeltaSq);
+                damping = MAX_MOUSE_DELTA / (mouseDelta + 0.001);
+            } else {
+                damping = MOUSE_SMOOTHING_FACTOR;
+            }
+            
+            out.x = prevX + (currentX - prevX) * damping;
+            out.y = prevY + (currentY - prevY) * damping;
+            return out;
+        }
+
+        function draw() {
+            
+            clear();
+            background(0);  
+
+            tX = -width/2;
+            tY = -height/2;
+            iTX = tX;
+            iTY = tY;
+
+            const scT = 0.0;
+
+            setUniformCached('u_bS', bS);
+            setUniformCached('u_scaleFactor', scF);
+            setUniformCached('u_translation', [tX, tY]);
+            
+            const resolutionToSet = [width, height];
+            setUniformCached('u_resolution', resolutionToSet);
+            
+            if (persistentMousePoints.length < 3) {
+            }
+            setUniformCached('u_time', scT);
+            
+            const baseCV = 4.0; 
+            const baseCellSize = (height / baseCV) * bS; 
+            const regionSize = height * 2.0; 
+            
+            if (!gridRegionSizes.includes(gridRegionSize)) {
+                gridRegionSize = gridRegionSizes[0]; 
+            }
+            
+            setUniformCached('u_regionSize', regionSize);
+            setUniformCached('u_regionAllocationMethod', regionAllocationMethod);
+            setUniformCached('u_gridRegionSize', gridRegionSize);
+            setUniformCached('u_baseCellSize', baseCellSize);
+            
+            const cellSize = (height / cV) * bS;
+            setUniformCached('u_cellSize', cellSize);
+            setUniformCached('u_flowSpeed', fS);
+            setUniformCached('u_luminosity', lum);
+            setUniformCached('u_vibrancy', vib);
+            setUniformCached('u_sortStrength', soS);
+            setUniformCached('u_sortFrequency', soF);
+            setUniformCached('u_sortAnimSpeed', soA);
+            setUniformCached('u_currentPattern', cuP);
+            
+            const currentTime = Date.now();
+            let persistentPointsChanged = false;
+            const pointsToRemove = [];
+            
+            for (let i = 0; i < persistentMousePoints.length; i++) {
+                const point = persistentMousePoints[i];
+                
+                if (point.fadeBackStartTime !== null) {
+                    const fadeBackAge = currentTime - point.fadeBackStartTime;
+                    if (fadeBackAge < FADE_BACK_DURATION) {
+                        const normalizedFadeTime = fadeBackAge / FADE_BACK_DURATION;
+                        point.fadeValue = 1.0 - (normalizedFadeTime * normalizedFadeTime);
+                        persistentPointsChanged = true;
+                    } else {
+                        pointsToRemove.push(i);
+                        persistentPointsChanged = true;
+                    }
+                }
+            }
+            
+            if (pointsToRemove.length > 0) {
+                for (let i = pointsToRemove.length - 1; i >= 0; i--) {
+                    persistentMousePoints.splice(pointsToRemove[i], 1);
+                }
+            }
+            
+            for (let i = 0; i < persistentMousePoints.length; i++) {
+                const point = persistentMousePoints[i];
+                const idx = i * 2;
+                persistentPositionsArray[idx] = point.x;
+                persistentPositionsArray[idx + 1] = point.y;
+                persistentFadeArray[i] = point.fadeValue;
+            }
+            
+            for (let i = persistentMousePoints.length; i < MAX_PERSISTENT_POINTS; i++) {
+                const idx = i * 2;
+                persistentPositionsArray[idx] = 0;
+                persistentPositionsArray[idx + 1] = 0;
+                persistentFadeArray[i] = 0.0;
+            }
+            
+            setUniformCached('u_mouse', [0.0, 0.0]);
+            setUniformCached('u_mouseActive', false); 
+            tS.setUniform('u_persistentMousePos', persistentPositionsArray);
+            tS.setUniform('u_persistentMouseFade', persistentFadeArray);
+            setUniformCached('u_persistentMouseCount', persistentMousePoints.length);
+            
+            
+            for (let i = 0; i < trailPoints.length; i++) {
+                const idx = i * 2;
+                trailPositionsArray[idx] = trailPoints[i].x;
+                trailPositionsArray[idx + 1] = trailPoints[i].y;
+                
+                trailTimesArray[i] = (currentTime - trailPoints[i].time) / 1000.0;
+            }
+            
+            for (let i = trailPoints.length; i < MAX_TRAIL_POINTS; i++) {
+                const idx = i * 2;
+                trailPositionsArray[idx] = 0;
+                trailPositionsArray[idx + 1] = 0;
+                trailTimesArray[i] = TRAIL_LIFETIME_SEC;
+            }
+            
+            setUniformCached('u_trailPositions', trailPositionsArray);
+            setUniformCached('u_trailTimes', trailTimesArray);
+            setUniformCached('u_trailCount', trailPoints.length);
+            
+            setUniformCached('u_mouseInfluenceRadius', 15.0);
+
+            
+            let cSP = height / cV;
+            let dySN = bN * (100.0 / floor(cSP)); 
+            setUniformCached('u_noiseScale', dySN);
+            
+            setUniformCached('u_caScaleVariation', 0.5);
+
+            beginShape();
+            vertex(0, 0, 0, 0, 0);
+            vertex(2, 0, 0, 1, 0);
+            vertex(2, 2, 0, 1, 1);
+            vertex(0, 2, 0, 0, 1);
+            endShape(CLOSE);
+
+            if (persistentPointsChanged) {
+                redraw();
+            }
+            
+            if (isR && (millis() - reST > reDu)) {
+                noRe();
+            }
+        }
+
+        
+
+        function upCS() {
+            const wiR = windowWidth / windowHeight;
+            let neW, neH;
+            
+            const currentTX = tX;
+            const currentTY = tY;
+            const currentScaleFactor = scF;
+            
+            switch(dM) {
+                case 0: 
+                    if (wiR > 0.75) {
+                        neH = windowHeight;
+                        neW = windowHeight * 0.75; 
+                    } else {
+                        neW = windowWidth * 0.98;
+                        neH = neW * (4/3); 
+                    }
+                    break;
+                
+                case 1: 
+                    if (wiR > 1) {
+                        neH = windowHeight;
+                        neW = windowHeight;
+                    } else {
+                        neW = windowWidth * 0.98;
+                        neH = neW;
+                    }
+                    break;
+                
+                case 2: 
+                    if (wiR > (4/3)) {
+                        neH = windowHeight;
+                        neW = windowHeight * (4/3); 
+                    } else {
+                        neW = windowWidth * 0.98;
+                        neH = neW * 0.75; 
+                    }
+                    break;
+                
+                case 3: 
+                    if (wiR <= 1) {
+                        neW = windowWidth * 0.98;
+                        neH = windowHeight;
+                    } else {
+                        neW = windowWidth;
+                        neH = windowHeight;
+                    }
+                    break;
+            }
+           
+            if (width !== neW || height !== neH) {
+                const relXPercent = (currentTX + width/2) / width;
+                const relYPercent = (currentTY + height/2) / height;
+                
+                resizeCanvas(neW, neH);
+                
+                tX = (relXPercent * neW) - neW/2;
+                tY = (relYPercent * neH) - neH/2;
+                
+                if (canvasElement) {
+                    canvasElement.style.cssText = 'position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)';
+                }
+                
+                requestAnimationFrame(draw);
+            }
+        }
+
+        
+        let reTO;
+        function windowResized() {
+            if (reTO) clearTimeout(reTO);
+            
+            reTO = setTimeout(() => {
+                requestAnimationFrame(upCS);
+            }, 100);
+        }
+
+        
+        let meR;
+        let reCN = [];
+        let isR = false;
+        let reST;
+        const reDu = 30000; 
+
+        function stRe() {
+            reCN = [];
+            
+            const stream = canvasElement.captureStream(60); 
+            
+            meR = new MediaRecorder(stream, {
+                mimeType: 'video/webm;codecs=vp9',
+                videoBitsPerSecond: 50000000 
+            });
+
+            meR.ondataavailable = (e) => {
+                if (e.data.size > 0) {
+                    reCN.push(e.data);
+                }
+            };
+
+            meR.onstop = saRe;
+
+            meR.start();
+            isR = true;
+            reST = millis();
+        }
+
+        function noRe() {
+            if (meR && meR.state !== 'inactive') {
+                meR.stop();
+            }
+            isR = false;
+        }
+
+        function saRe() {
+            if (!reCN.length) return;
+            
+            const blob = new Blob(reCN, {
+                type: 'video/webm'
+            });
+            
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            const timestamp = geT();
+            
+            a.style.display = 'none';
+            a.href = url;
+            a.download = `shader_recording_${timestamp}.webm`;
+            
+            document.body.appendChild(a);
+            a.click();
+            
+            setTimeout(() => {
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+                reCN = [];
+            }, 100);
+        }
+
+    </script>
+  </body>
+</html>
